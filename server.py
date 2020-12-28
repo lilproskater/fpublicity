@@ -109,6 +109,8 @@ def login_room(room_id, username):
     data = sql_exec(f"""
             SELECT key_hash, user_keys FROM rooms WHERE room_id={room_id}
         """)
+    if not len(data):
+        return None, None
     for user in data[0][1].split(','):
         if user.split(';')[0] == username:
             return data[0][0], user.split(';')[1]
@@ -198,9 +200,23 @@ def broadcast_info(room_id, username, message):
             pass
 
 
+def is_user_online(room_id, username):
+    for connection_handler in connections_handler:
+        try:
+            if connection_handler.room_id == room_id and connection_handler.username == username:
+                return True
+        except:
+            pass
+    return False
+
+
 def get_room_info(room_id):
     data = sql_exec(f"""SELECT room_name, user_keys FROM rooms WHERE room_id={room_id}""")
-    return "room_name: " + data[0][0] + '; ' + "users: " + ", ".join([user.split(';')[0] for user in data[0][1].split(',')])
+    usernames = [user.split(';')[0] for user in data[0][1].split(',')]
+    for i in range(len(usernames)):
+        if is_user_online(room_id, usernames[i]):
+            usernames[i] = '*' + usernames[i]
+    return "room_name: " + data[0][0] + '; ' + "users: " + ", ".join(usernames)
 
 
 def delete_room(room_id):

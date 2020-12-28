@@ -8,10 +8,11 @@ from datetime import datetime
 from tkinter import *
 from signal import SIGTERM
 from re import match as re_match
-from tkinter import messagebox
+from tkinter import messagebox, font
 from argparse import ArgumentParser
 from random import randint as random_int
 from time import sleep
+from beepy import beep
 
 
 class Argparser(ArgumentParser):
@@ -82,9 +83,9 @@ def get_decode(message_bytes, key):
 
 
 def genkey(bytes_size, file_path):
-    ba1 = bytearray([random_int(0, 255) for _ in range(bytes_size)])
+    key = bytearray([random_int(0, 255) for _ in range(bytes_size)])
     with open(file_path, 'wb') as f:
-        f.write(ba1)
+        f.write(key)
     messagebox.showinfo(title="Generated key", message=f"New key file: ({file_path})" )
 
 
@@ -170,11 +171,11 @@ def fpublicity_button(title, cmd):
 
 
 def fpublicity_label(title):
-    return Label(root, text=title, bg='black', fg='#0f0', justify=LEFT)
+    return Label(root, text=title, bg='black', fg='#0f0')
 
 
-def fpublicity_entry(symb=None):
-    return Entry(root, show=symb, bg='#333', fg='#0f0')
+def fpublicity_entry(symb=None, textvar=None):
+    return Entry(root, show=symb, bg='#333', fg='#0f0', textvariable=textvar)
 
 
 def window_create_room():
@@ -216,10 +217,39 @@ def window_register_room():
     fpublicity_button("Register Room", lambda: registrate_room(room_id.get(), username.get(), password.get())).place(x=20, y=210, width=200, height=35)
 
 
-def window_chat():
-    def send_input():
+def window_chat(room_id):
+    def save_chat():
+        with open('room_' + str(room_id) + '_' + str(int(datetime.now().timestamp())) + '.txt', 'w') as f: 
+            f.write('\n'.join([i for i in chat_history.get(0, END)]))
+        messagebox.showinfo(title="Saved", message="Successfully saved chat!")
+
+
+    def entry_callback(label, entry_string):
+        font_height = font.Font().metrics('linespace')
+        commands = [
+            "/change_room_key <path_to_key_file> (Admin)",
+            "/kick <username> (Admin)",
+            "/delete_room (Admin)",
+            "/info",
+            "/sound",
+            "/change_password <password>",
+        ]
+        lines_count = 0
+        label_text = ''
+        if entry_string.get() and entry_string.get().find(' ') == -1:
+            for command in commands:
+                if command.startswith(entry_string.get()):
+                    label_text += command + '\n'
+                    lines_count += 1
+        height = font_height*lines_count
+        label.config(text=label_text)
+        label.place(x=20, y=340-height, width=500, height=height)
+
+
+    def send_input(event):
+        global notifications
         message = user_input.get()
-        if not message:
+        if not message.strip():
             return
         if message[0] == '/':
             message = message.split(' ')
@@ -246,6 +276,9 @@ def window_chat():
             if message[0] == '/change_password':
                 snd_cmd(sock, jsonfy_request('change_password', (hash_md5(message[1]),)))
                 messagebox.showinfo(title="", message="Password has been changed!")
+            if message[0] == '/sound':
+                notifications = not notifications
+                messagebox.showinfo(title="", message="Sound: " + ('on' if notifications else 'off'))
         else:
             if key_hash() == '0':
                 user_input.delete(0, END)
@@ -258,9 +291,13 @@ def window_chat():
     threading.Thread(target=chat_listener).start()
     clear_tk(root)
     chat_history.place(x=20, y=20, width=560, height=300)
-    user_input = fpublicity_entry()
+    cmd_label = Label(text="", fg="#0f0", bg="#222", anchor="nw", justify=LEFT)
+    entry_string = StringVar()
+    entry_string.trace("w", lambda name, index, mode, text=entry_string: entry_callback(cmd_label, entry_string))
+    user_input = fpublicity_entry(textvar=entry_string)
     user_input.place(x=20, y=340, width=500, height=40)
-    fpublicity_button("Send", lambda: send_input()).place(x=520, y=340, width=60, height=40)
+    user_input.bind('<Return>', send_input)
+    fpublicity_button("Save", lambda: save_chat()).place(x=530, y=340, width=50, height=40)
 
 
 def window_enter_room():
@@ -271,7 +308,7 @@ def window_enter_room():
         if str(wait_rcv_cmd(sock)) != 'Logged in':
             messagebox.showwarning(title="Error", message="Invalid credentials")
             os.kill(os.getpid(), SIGTERM)
-        window_chat()
+        window_chat(room_id)
     clear_tk(root)
     canvas.place(x=310, y=(600 - logo_size) // 4)
     fpublicity_label("Room id:").place(x=20, y=20, width=200, height=25)
@@ -283,8 +320,81 @@ def window_enter_room():
     room_id.place(x=20, y=50, width=200, height=25)
     username.place(x=20, y=110, width=200, height=25)
     password.place(x=20, y=170, width=200, height=25)
-    fpublicity_button("Send", lambda: login_room(room_id.get(), username.get(), password.get())).place(x=20, y=210, width=200, height=35)
+    fpublicity_button("Enter room", lambda: login_room(room_id.get(), username.get(), password.get())).place(x=20, y=210, width=200, height=35)
 
+
+def window_help():
+    clear_tk(root)
+    scrollbar = Scrollbar(root)
+    scrollbar.pack(side=RIGHT, fill=Y)
+    help_listbox = Listbox(root, bg="black", fg="#0f0", font=font.Font(size=13))
+    help_listbox.place(x=0, y=0, width=585, height=400)
+    help_text = '''Fpublicity dev. start date: 29.11.2020
+Generate Key:
+    Generates a megabyte key file that you have to keep.
+    Please, share this key privately only with room members.
+
+Create Room:
+    To create the private room you have to enter Room name,
+    Admin username and password. When the room is created
+    you will get the room id that you need to save it.
+
+Enter Room:
+    You have to be a member of the room if you want to enter.
+    You will get "Invalid credentials" error if you have right
+    username and password, but wrong room key.
+
+Register Room:
+    To join the room first you need to have the same room key.
+    Then enter room id of the room you want to join. Choose
+    username and password and wait until admin accepts you.
+
+
+Example:
+    Imagine, Alice and Bob want to chat privately:
+    *Alice and Bob needs fpublicity server ip and port*
+    *They need to start program with --ip <ip> --port <port>*
+
+    Alice: Create Room
+        Room name => Bob_and_Alice
+        Username => a1is3
+        Password => ********
+    Server Response: room id = 123123
+    *Alice needs to save this room id*    
+    Alice: Generate Key
+        Key file name: key5711053.bin
+    Alice: Enter Room
+        Room id => 123123
+        Username => a1is3
+        Password => ********
+    Alice: /change_room_key key5711053.bin
+    *Alice restarts the program with --key key5711053.bin argument*
+    *Alice shares the key and room id to Bob*
+    Alice: Enter room
+    *Bob starts the program with --key key5711053.bin argument*
+    Bob: Registrate room
+        Room id => 123123
+        Username => b0b
+        Password => **********
+    *Alice accepts Bob*
+    Bob: Enter Room
+        Room id => 123123
+        Username => b0b
+        Password => **********
+    *Alice and Bob start to chat privately*
+    *Other users also can join the room just as Bob did*
+
+WARNING:
+    If you are entering the room you just created you need to
+    start the program with no --key argument. Then update the room
+    key.
+
+Developers:
+    N0n3-github, x64BitWorm'''
+    for help_item in help_text.split('\n'):
+        help_listbox.insert(END, help_item)
+    help_listbox.config(yscrollcommand=scrollbar.set)
+    scrollbar.config(command=help_listbox.yview)
 
 root = Tk()
 root.configure(background='black')
@@ -292,17 +402,18 @@ root.title("fpublicity")
 root.geometry("600x400")
 root.resizable(False, False)
 logo = [0, 18158513697557968896, 18446735277616530431, 36028796482093057, 35184372056064, 18437736908814548988, 18446742974214701055, 18446744073575342079,
-	   36028797018947587, 567462316929442302, 18302661875210518512, 17302690099242696711, 2413789694644502577, 17871303651252240316, 4611545289527980287,
-	   4611624273979637663, 540713362012373308, 16141587224142604295, 71776630169657358, 14876484648961052390, 18441381755496824057, 14123288015358917695,
-	   18229515760231317503, 18338631053721108423, 18338631286798581735, 4107252058802078671, 13944147184284073500, 15789195264061455, 4311859204, 4096, 0, 0,
-	   0, 9223372037123211264, 4469378955280385, 18302629980850364384, 35993612914786307, 18374704063267766208, 36024433330094087, 13835066851375184896,
-	   18445618174876450815, 18446743523953999871, 144115187807420479, 17592185978880, 18158513699705323488, 18446462598733103103, 72057456598974495,
-	   8796025913344, 1073725440, 18374686479671754744, 15, 0, 52]
+       36028797018947587, 567462316929442302, 18302661875210518512, 17302690099242696711, 2413789694644502577, 17871303651252240316, 4611545289527980287,
+       4611624273979637663, 540713362012373308, 16141587224142604295, 71776630169657358, 14876484648961052390, 18441381755496824057, 14123288015358917695,
+       18229515760231317503, 18338631053721108423, 18338631286798581735, 4107252058802078671, 13944147184284073500, 15789195264061455, 4311859204, 4096, 0, 0,
+       0, 9223372037123211264, 4469378955280385, 18302629980850364384, 35993612914786307, 18374704063267766208, 36024433330094087, 13835066851375184896,
+       18445618174876450815, 18446743523953999871, 144115187807420479, 17592185978880, 18158513699705323488, 18446462598733103103, 72057456598974495,
+       8796025913344, 1073725440, 18374686479671754744, 15, 0, 52]
 logo_size = 300
 logos = []
 canvas = Canvas(root, width=logo_size, height=logo_size, bg="black", bd=0, highlightthickness=0)
 canvas.place(x=310, y=(600 - logo_size) // 4)
 chat_history = Listbox(root, bg="black", fg="#0f0")
+notifications = False
 
 
 def redraw_logo():
@@ -329,6 +440,7 @@ def isbitset(a, x, y):
 
 
 def chat_listener():
+    main_font = font.Font()
     while True:
         try:
             data = rcv_cmd(sock)
@@ -341,8 +453,27 @@ def chat_listener():
             elif data['cmd'] == 'inbox':
                 message = bytearray.fromhex(data['args'][1])
                 message = get_decode(message, chat_key).decode('cp1251')
-                chat_history.insert(END, datetime.now().strftime("%H:%M") + ' <' + data['args'][0] + '>: ' + message)
+                msg_text = datetime.now().strftime("%H:%M") + ' <' + data['args'][0] + '>: ' + message
+                msg_buf = ''
+                counter = chat_history.size()
+                for i in msg_text:
+                    while main_font.measure(msg_buf + i) > 540:
+                        if ' ' in msg_buf:
+                            pos = msg_buf.rindex(' ')
+                            if pos == 0:
+                                chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf)
+                                msg_buf = ''
+                            else:
+                                chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf[:pos])
+                                msg_buf = msg_buf[pos:]
+                        else:
+                            chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf)
+                            msg_buf = ''
+                    msg_buf += i
+                chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf)
                 chat_history.see(END)
+                if notifications:
+                    beep(sound=1)
             elif data['cmd'] == 'popup':
                 messagebox.showinfo(title="Info", message=data['args'])
             else:
@@ -360,10 +491,11 @@ except ConnectionRefusedError:
     messagebox.showwarning(title="Warning", message="Could not connect to Server" + str(ipv4) + ':' + str(port))
     os.kill(os.getpid(), SIGTERM)
 try:
-    fpublicity_button("Create Room", window_create_room).place(x=25, y=15, width=200, height=70)
-    fpublicity_button("Enter Room", window_enter_room).place(x=25, y=115, width=200, height=70)
-    fpublicity_button("Register Room", window_register_room).place(x=25, y=215, width=200, height=70)
-    fpublicity_button("Generate Key", lambda: genkey(1024**2, 'key' + str(random_int(1000000, 9999999)) + '.bin')).place(x=25, y=315, width=200, height=70)
+    fpublicity_button("Create Room", window_create_room).place(x=5, y=5, width=200, height=70)
+    fpublicity_button("Enter Room", window_enter_room).place(x=5, y=85, width=200, height=70)
+    fpublicity_button("Register Room", window_register_room).place(x=5, y=165, width=200, height=70)
+    fpublicity_button("Generate Key", lambda: genkey(1024**2, 'key' + str(random_int(1000000, 9999999)) + '.bin')).place(x=5, y=245, width=200, height=70)
+    fpublicity_button("Help", window_help).place(x=5, y=325, width=200, height=70)
 except:
     os.kill(os.getpid(), SIGTERM)
 root.protocol("WM_DELETE_WINDOW", lambda: os.kill(os.getpid(), SIGTERM))
