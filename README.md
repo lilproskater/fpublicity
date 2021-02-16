@@ -12,4 +12,6 @@ python3 -m pip install beepy
 ```
   
 **Windows:**
+```
 python -m pip install beepy
+```
