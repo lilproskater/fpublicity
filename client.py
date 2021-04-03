@@ -12,7 +12,7 @@ from tkinter import messagebox, font
 from argparse import ArgumentParser
 from random import randint as random_int
 from time import sleep
-# from beepy import beep
+from beepy import beep
 
 
 class Argparser(ArgumentParser):
@@ -477,7 +477,7 @@ def chat_listener():
                 chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf)
                 chat_history.see(END)
                 if notifications:
-                    pass # beep(sound=1)
+                    beep(sound=1)
             elif data['cmd'] == 'popup':
                 messagebox.showinfo(title="Info", message=data['args'])
             else:
