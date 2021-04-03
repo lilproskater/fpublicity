@@ -309,8 +309,9 @@ def window_enter_room():
         snd_cmd(sock, jsonfy_request('login_room', (room_id, username,)))
         salt = wait_rcv_cmd(sock)
         snd_cmd(sock, hash_md5(key_hash() + salt + hash_md5(password)))
-        if str(wait_rcv_cmd(sock)) != 'Logged in':
-            messagebox.showwarning(title="Error", message="Invalid credentials")
+        login_response = str(wait_rcv_cmd(sock))
+        if login_response != 'Logged in':
+            messagebox.showwarning(title="Error", message=login_response)
             os.kill(os.getpid(), SIGTERM)
         window_chat(room_id)
     clear_tk(root)
