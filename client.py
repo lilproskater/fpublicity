@@ -12,7 +12,7 @@ from tkinter import messagebox, font
 from argparse import ArgumentParser
 from random import randint as random_int
 from time import sleep
-from beepy import beep
+# from beepy import beep
 
 
 class Argparser(ArgumentParser):
@@ -110,12 +110,16 @@ if not re_match(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|
 def rcv_cmd(connection):
     data1 = bytearray()
     while True:
-        data = connection.recv(1)
-        if data == b'\n':
-            return data1.decode('utf-8')
-        data1 += data
-        if len(data1) > 1536 or not len(data):
-            return None
+        try:
+            data = connection.recv(1)
+            if data == b'\n':
+                return data1.decode('utf-8')
+            data1 += data
+            if len(data1) > 1536 or not len(data):
+                return None
+        except:
+            messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
+            os.kill(os.getpid(), SIGTERM)
 
 
 def wait_rcv_cmd(connection):
@@ -473,7 +477,7 @@ def chat_listener():
                 chat_history.insert(END, (' '*10 if chat_history.size() != counter else '') + msg_buf)
                 chat_history.see(END)
                 if notifications:
-                    beep(sound=1)
+                    pass # beep(sound=1)
             elif data['cmd'] == 'popup':
                 messagebox.showinfo(title="Info", message=data['args'])
             else:
@@ -488,7 +492,7 @@ try:
     sock.connect((ipv4, port))
 except ConnectionRefusedError:
     root.withdraw()
-    messagebox.showwarning(title="Warning", message="Could not connect to Server" + str(ipv4) + ':' + str(port))
+    messagebox.showwarning(title="Warning", message="Could not connect to Server " + str(ipv4) + ':' + str(port))
     os.kill(os.getpid(), SIGTERM)
 try:
     fpublicity_button("Create Room", window_create_room).place(x=5, y=5, width=200, height=70)

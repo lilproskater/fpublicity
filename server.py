@@ -39,12 +39,14 @@ def rcv_cmd(connection):
                 return False
             continue
         except:
-            return False
+            return "Closed"
 
 
 def wait_rcv_cmd(connection):
     while True:
         data = rcv_cmd(connection)
+        if data == "Closed":
+            return
         if not data:
             continue
         return data
@@ -388,6 +390,11 @@ threading.Thread(target=db_contoller).start()
 while True:
     new_connection, _ = server_socket.accept()
     new_connection.settimeout(5.0)
-    handler = ConnectionHandler(new_connection)
-    connections_handler.append(handler)
-    threading.Thread(target=handler.connection_handler).start()
+    new_connection_ip = new_connection.getsockname()[0]
+    connections_ip = [conn_handler.connection.getsockname()[0] for conn_handler in connections_handler]
+    if connections_ip.count(new_connection_ip) < 2:  # No more than 2 connections for 1 ip
+        handler = ConnectionHandler(new_connection)
+        connections_handler.append(handler)
+        threading.Thread(target=handler.connection_handler).start()
+    else:
+        new_connection.close()
