@@ -30,13 +30,13 @@ def rcv_cmd(connection):
             if data == b'\n':
                 return data1.decode('utf-8')
             if not len(data):
-                break
+                return
             data1 += data
             if len(data1) > 1536:
                 return
         except socket.timeout:
             if connection.fileno() == -1:
-                return False
+                return "Closed"
             continue
         except:
             return "Closed"
@@ -45,8 +45,6 @@ def rcv_cmd(connection):
 def wait_rcv_cmd(connection):
     while True:
         data = rcv_cmd(connection)
-        if data == "Closed":
-            return
         if not data:
             continue
         return data
@@ -262,7 +260,8 @@ print('Listening at', str(ipv4) + ':' + str(port) + ' ...')
 
 
 class ConnectionHandler:
-    def __init__(self, connection):
+    def __init__(self, connection, ip):
+        self.ip = ip
         self.room_id = 0
         self.key_hash = '0'
         self.username = ''
@@ -275,7 +274,10 @@ class ConnectionHandler:
         try:
             while True:
                 sleep(.1)
-                data = json.loads(wait_rcv_cmd(self.connection))
+                data = wait_rcv_cmd(self.connection)
+                if data == "Closed":
+                    break
+                data = json.loads(data)
                 if data['call_func'] == 'create_room':
                     snd_cmd(self.connection, create_room(*data['args']))
                     break
@@ -330,9 +332,9 @@ class ConnectionHandler:
                         """)
                     snd_cmd(self.connection, "Logged in")
                     broadcast_info(self.room_id, self.username, f"User \"{self.username}\" has joined to the room")
-                while True:  # main Loop
+                while True:  # chat Loop
                     data = rcv_cmd(self.connection)
-                    if data == False:
+                    if data == "Closed":
                         break
                     elif not data:
                         sleep(.1)
@@ -388,13 +390,13 @@ class ConnectionHandler:
 
 threading.Thread(target=db_contoller).start()
 while True:
-    new_connection, _ = server_socket.accept()
-    new_connection.settimeout(5.0)
-    new_connection_ip = new_connection.getsockname()[0]
-    connections_ip = [conn_handler.connection.getsockname()[0] for conn_handler in connections_handler]
-    if connections_ip.count(new_connection_ip) < 2:  # No more than 2 connections for 1 ip
-        handler = ConnectionHandler(new_connection)
+    connection, address = server_socket.accept()
+    address = address[0]
+    connection.settimeout(5.0)
+    connections_ip = [connection_handler.ip for connection_handler in connections_handler]
+    if connections_ip.count(address) < 2:  # No more than 2 connections for 1 ip
+        handler = ConnectionHandler(connection, address)
         connections_handler.append(handler)
         threading.Thread(target=handler.connection_handler).start()
     else:
-        new_connection.close()
+        connection.close()
