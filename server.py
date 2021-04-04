@@ -23,20 +23,18 @@ def sql_exec(sql):
 
 
 def rcv_cmd(connection):
-    data1 = bytearray()
+    data = bytearray()
     while True:
         try:
-            data = connection.recv(1)
-            if data == b'\n':
-                return data1.decode('utf-8')
-            if not len(data):
-                return
-            data1 += data
-            if len(data1) > 1536:
+            chunk = connection.recv(1)
+            if not chunk:
+                return "Closed"
+            if chunk == b'\n':
+                return data.decode('utf-8')
+            data += chunk
+            if len(data) > 1536:
                 return
         except socket.timeout:
-            if connection.fileno() == -1:
-                return "Closed"
             continue
         except:
             return "Closed"
@@ -50,12 +48,12 @@ def wait_rcv_cmd(connection):
         return data
 
 
-def hash_md5(data):
-    return hashlib.md5(data.encode('utf-8')).hexdigest()
-
-
 def snd_cmd(connection, cmd):
     connection.send((str(cmd) + '\n').encode('utf-8'))
+
+
+def hash_md5(data):
+    return hashlib.md5(data.encode('utf-8')).hexdigest()
 
 
 def db_contoller():

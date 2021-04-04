@@ -112,11 +112,14 @@ def rcv_cmd(connection):
     while True:
         try:
             data = connection.recv(1)
+            if not data:
+                messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
+                os.kill(os.getpid(), SIGTERM)
             if data == b'\n':
                 return data1.decode('utf-8')
             data1 += data
-            if len(data1) > 1536 or not len(data):
-                return None
+            if len(data1) > 1536:
+                return
         except:
             messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
             os.kill(os.getpid(), SIGTERM)
