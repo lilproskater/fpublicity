@@ -117,6 +117,8 @@ def login_room(room_id, username):
 
 def can_registrate(room_id, key_hash, username, pwd_hash):
     username = username.lower()
+    if not re_match(r'^[A-z0-9._]{3,16}', username):
+        return "Invalid username"
     data = sql_exec(f"""
             SELECT user_keys FROM rooms WHERE room_id={room_id} AND key_hash='{key_hash}'
         """)
@@ -134,7 +136,7 @@ def registrate_user(room_id, username, pwd_hash):
             SELECT user_keys FROM rooms WHERE room_id={room_id}
         """)
     if not data:
-        return "Invalid room credentials"
+        return "Invalid room id"
     sql_exec(f"""UPDATE rooms SET user_keys='{data[0][0] + ',' + username + ';' + pwd_hash}' WHERE room_id={room_id}""")
 
 
@@ -154,9 +156,6 @@ def kick_user(room_id, username):
         if data[i].split(';')[0] == username:
             data.pop(i)
             sql_exec(f"""UPDATE rooms SET user_keys='{','.join(data)}'""")
-            for connection_handler in connections_handler:
-                if connection_handler.room_id == room_id and connection_handler.username == username:
-                    connection_handler.connection.close()
             return True
     return False
 
@@ -269,6 +268,7 @@ class ConnectionHandler:
         self.connection = connection
 
     def connection_handler(self):
+        global connections_handler
         try:
             while True:
                 sleep(.1)
@@ -280,8 +280,12 @@ class ConnectionHandler:
                     snd_cmd(self.connection, create_room(*data['args']))
                     break
                 if data['call_func'] == 'registrate_room':
-                    if can_registrate(*data['args']) != True:
-                        snd_cmd(self.connection, "You cannot join this room")
+                    if not re_match(r'^[A-z0-9._]{3,16}', data['args'][2]):
+                        snd_cmd(self.connection, "Invalid username")
+                        break
+                    can_reg = can_registrate(*data['args'])
+                    if can_reg != True:
+                        snd_cmd(self.connection, "You cannot join this room (" + can_reg.lower() + ")")
                         break
                     room_admin = get_room_admin(data['args'][0])
                     if not room_admin:
@@ -290,6 +294,7 @@ class ConnectionHandler:
                     if room_admin.admin_request == 'busy':
                         snd_cmd(self.connection, "Admin is already accepting another user")
                         break
+                    snd_cmd(self.connection, "Wait until admin will accept you")
                     room_admin.admin_request = 'busy'
                     snd_cmd(room_admin.connection, json.dumps({"cmd": "join_request", "args": [data['args'][2]]}))
                     while room_admin.admin_request == 'busy':
@@ -299,7 +304,7 @@ class ConnectionHandler:
                         break
                     room_admin.admin_request = ''
                     registrate_user(data['args'][0], data['args'][2], data['args'][3])
-                    snd_cmd(self.connection, "Admin accepted you")
+                    snd_cmd(self.connection, "Admin has accepted you")
                     broadcast_info(room_admin.room_id, room_admin.username, f"Admin has accepted \"{data['args'][2]}\" to the room")
                     break
                 if data['call_func'] == 'login_room':
@@ -308,7 +313,7 @@ class ConnectionHandler:
                     snd_cmd(self.connection, salt)
                     client_response = wait_rcv_cmd(self.connection)
                     if (not room_key_hash) or (hash_md5(room_key_hash + salt + login_pwd_hash) != client_response):
-                        snd_cmd(self.connection, "Invalid credentials")
+                        snd_cmd(self.connection, "Invalid credentials (key is also part of auth)")
                         break
                     data['args'] = [data['args'][0], room_key_hash, data['args'][1], login_pwd_hash]
                     already_logged = False
@@ -344,32 +349,47 @@ class ConnectionHandler:
                     data = json.loads(data)
                     if data['call_func'] == 'broadcast':
                         broadcast(self.room_id, self.username, data['args'][0])
-                    if data['call_func'] == 'kick_user' and self.is_admin:
-                        if kick_user(self.room_id, data['args'][0]):
-                            broadcast_info(self.room_id, self.username, f"User \"{data['args'][0]}\" has been kicked from room")
+                    if data['call_func'] == 'kick_user':
+                        if self.is_admin:
+                            if kick_user(self.room_id, data['args'][0]):
+                                broadcast_info(self.room_id, self.username, f"User \"{data['args'][0]}\" has been kicked from room")
+                                for connection_handler in connections_handler:
+                                    if connection_handler.room_id == self.room_id and connection_handler.username == data['args'][0]:
+                                        connection_handler.connection.close()
+                                        break
+                            else:
+                                snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "User <" + data['args'][0] + "> is not found"}))
                         else:
-                            snd_cmd(self.connection, "User has not been kicked")
+                            snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "You are not admin of this room!"}))
                     if data['call_func'] == 'room_info':
                         snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : get_room_info(self.room_id)}))
                     if data['call_func'] == 'change_password':
                         change_password(self.room_id, self.username, data['args'][0])
                         snd_cmd(self.connection, "Password has been changed successfully!")
                         break
-                    if data['call_func'] == 'delete_room' and self.is_admin:
-                        delete_room(self.room_id)
-                        broadcast_info(self.room_id, self.username, f"This room has been deleted!")
-                    if data['call_func'] == 'set_room_key' and self.is_admin:
-                        set_room_key(self.room_id, data['args'][0])
-                        broadcast_info(self.room_id, self.username, f"Room key has been changed!")
-                        for connection_handler in connections_handler:
-                            if connection_handler.room_id == self.room_id:
-                                try:
-                                    connection_handler.connection.close()
-                                    connections_handler.pop(connections_handler.index(connection_handler))
-                                except:
-                                    pass
+                    if data['call_func'] == 'delete_room':
+                        if self.is_admin:
+                            delete_room(self.room_id)
+                            snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "Room has been deleted!"}))
+                            broadcast_info(self.room_id, self.username, f"This room has been deleted! This is your last session.")
+                        else:
+                            snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "You are not admin of this room!"}))
+                    if data['call_func'] == 'set_room_key':
+                        if self.is_admin:
+                            set_room_key(self.room_id, data['args'][0])
+                            snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "Room key has been changed!"}))
+                            broadcast_info(self.room_id, self.username, f"Room key has been changed!")
+                            for connection_handler in connections_handler:
+                                if connection_handler.room_id == self.room_id:
+                                    try:
+                                        connection_handler.connection.close()
+                                    except:
+                                        pass
+                            connections_handler = [connection_handler for connection_handler in connections_handler if connection_handler.room_id != self.room_id]
+                        else:
+                            snd_cmd(self.connection, json.dumps({'cmd': 'popup', 'args' : "You are not admin of this room!"}))
                 break
-        except:
+        except:  # Try printing exception if something is wrong
             pass
         try:
             if self.room_id:

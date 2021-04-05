@@ -86,7 +86,7 @@ def genkey(bytes_size, file_path):
     key = bytearray([random_int(0, 255) for _ in range(bytes_size)])
     with open(file_path, 'wb') as f:
         f.write(key)
-    messagebox.showinfo(title="Generated key", message=f"New key file: ({file_path})" )
+    messagebox.showinfo(title="Generated key", message=f"New key file: ({file_path})")
 
 
 def getkey(file_path):
@@ -108,17 +108,20 @@ if not re_match(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|
 
 
 def rcv_cmd(connection):
-    data1 = bytearray()
+    data = bytearray()
     while True:
         try:
-            data = connection.recv(1)
-            if not data:
+            chunk = connection.recv(1)
+            if chunk == b'\n':
+                if data in (b"Password has been changed successfully!", ):
+                    messagebox.showinfo(title="Info", message=data.decode('utf-8'))
+                else:
+                    return data.decode('utf-8')
+            if not chunk:
                 messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
                 os.kill(os.getpid(), SIGTERM)
-            if data == b'\n':
-                return data1.decode('utf-8')
-            data1 += data
-            if len(data1) > 1536:
+            data += chunk
+            if len(data) > 1536:
                 return
         except:
             messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
@@ -207,8 +210,10 @@ def window_create_room():
 def window_register_room():
     def registrate_room(room_id, username, password):
         snd_cmd(sock, jsonfy_request('registrate_room', (str(room_id), key_hash(), str(username), str(hash_md5(password)))))
-        messagebox.showinfo(title="Wait", message="Wait until admin will accept you")
-        messagebox.showinfo(title="Info", message= str(wait_rcv_cmd(sock)))
+        reg_response = str(wait_rcv_cmd(sock))
+        messagebox.showinfo(title="Info", message=reg_response)
+        if reg_response == "Wait until admin will accept you":
+            messagebox.showinfo(title="Info", message=str(wait_rcv_cmd(sock)))
         os.kill(os.getpid(), SIGTERM)
     clear_tk(root)
     canvas.place(x=310, y=(600 - logo_size) // 4)
@@ -226,7 +231,7 @@ def window_register_room():
 
 def window_chat(room_id):
     def save_chat():
-        with open('room_' + str(room_id) + '_' + str(int(datetime.now().timestamp())) + '.txt', 'w') as f: 
+        with open('room_' + str(room_id) + '_' + str(int(datetime.now().timestamp())) + '.txt', 'w') as f:
             f.write('\n'.join([i for i in chat_history.get(0, END)]))
         messagebox.showinfo(title="Saved", message="Successfully saved chat!")
 
@@ -256,33 +261,33 @@ def window_chat(room_id):
     def send_input(event):
         global notifications
         message = user_input.get()
+        clear_input = False
         if not message.strip():
             return
         if message[0] == '/':
-            message = message.split(' ')
+            first_space = message.find(' ')
+            message = [message[:first_space], message[first_space + 1:]] if first_space != -1 else [message, '']
+            commands = ('/change_room_key', '/kick', '/delete_room', '/info', '/change_password', '/sound')
+            if message[0] in commands:
+                clear_input = True
             if message[0] == '/change_room_key':
                 file_path = message[1]
                 try:
                     new_hash = hashlib.md5(getkey(file_path)).hexdigest()
                     snd_cmd(sock, jsonfy_request('set_room_key', (new_hash,)))
-                    messagebox.showinfo(title="Room key updated", message="Room key has been updated successfully!")
-                    os.kill(os.getpid(), SIGTERM)
                 except FileNotFoundError:
                     messagebox.showwarning(title="File not found", message="File " + file_path + " is not found!")
-                os.kill(os.getpid(), SIGTERM)
             if message[0] == '/kick':
-                try:
-                    snd_cmd(sock, jsonfy_request('kick_user', (message[1],)))
-                except:
-                    messagebox.showwarning(title="", message="User is not found!")
+                snd_cmd(sock, jsonfy_request('kick_user', (message[1],)))
             if message[0] == '/delete_room':
                 snd_cmd(sock, jsonfy_request('delete_room', ("",)))
-                messagebox.showinfo(title="", message="Room has been deleted")
             if message[0] == '/info':
                 snd_cmd(sock, jsonfy_request('room_info', ("", )))
             if message[0] == '/change_password':
-                snd_cmd(sock, jsonfy_request('change_password', (hash_md5(message[1]),)))
-                messagebox.showinfo(title="", message="Password has been changed!")
+                if not message[1]:
+                    messagebox.showinfo(title="", message="Password cannot be empty!")
+                else:
+                    snd_cmd(sock, jsonfy_request('change_password', (hash_md5(message[1]),)))
             if message[0] == '/sound':
                 notifications = not notifications
                 messagebox.showinfo(title="", message="Sound: " + ('on' if notifications else 'off'))
@@ -291,10 +296,21 @@ def window_chat(room_id):
                 user_input.delete(0, END)
                 messagebox.showinfo(title="", message="You need to set room key first. Use /change_room_key <file name>")
                 return
-            encoded_msg = get_encode(bytearray(message.encode('cp1251')), chat_key)
-            encoded_msg = ''.join([format(x, '02x') for x in encoded_msg])
-            snd_cmd(sock, jsonfy_request('broadcast', (encoded_msg,)))
-        user_input.delete(0, END)
+            message = message.replace('\n', ' ')
+            try:
+                message = bytearray(message.encode('cp1251'))
+            except:
+                messagebox.showinfo(title="", message="Cannot encode some characters. Use cp1251 only")
+            else:
+                encoded_msg = get_encode(message, chat_key)
+                if not encoded_msg:
+                    messagebox.showinfo(title="", message="Message is too long. Type something shorter")
+                else:
+                    encoded_msg = ''.join([format(x, '02x') for x in encoded_msg])
+                    snd_cmd(sock, jsonfy_request('broadcast', (encoded_msg,)))
+                    clear_input = True
+        if clear_input:
+            user_input.delete(0, END)
     threading.Thread(target=chat_listener).start()
     clear_tk(root)
     chat_history.place(x=20, y=20, width=560, height=300)
