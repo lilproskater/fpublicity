@@ -61,7 +61,7 @@ def hash_md5(data):
     return hashlib.md5(data.encode('utf-8')).hexdigest()
 
 
-def db_contoller():
+def db_cleaner():
     while True:
         sql_exec(f"""DELETE FROM rooms WHERE last_message < {int(time()) - 90 * 86400}""")  # 3 months inactive groups
         sleep(3600)
@@ -411,7 +411,7 @@ class ConnectionHandler:
             pass
 
 
-threading.Thread(target=db_contoller).start()
+threading.Thread(target=db_cleaner).start()
 while True:
     try:
         connection, address = server_socket.accept()
