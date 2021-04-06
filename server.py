@@ -4,6 +4,8 @@ import sqlite3
 import sys
 import json
 import hashlib
+from os import kill as os_kill, getpid as os_getpid
+from signal import SIGTERM
 from argparse import ArgumentParser
 from errno import EADDRNOTAVAIL, EADDRINUSE
 from re import match as re_match
@@ -408,7 +410,11 @@ class ConnectionHandler:
 
 threading.Thread(target=db_contoller).start()
 while True:
-    connection, address = server_socket.accept()
+    try:
+        connection, address = server_socket.accept()
+    except KeyboardInterrupt:
+        print("\nStopped listening. Bye!")
+        os_kill(os_getpid(), SIGTERM)
     address = address[0]
     connection.settimeout(5.0)
     connections_ip = [connection_handler.ip for connection_handler in connections_handler]

@@ -137,7 +137,11 @@ def wait_rcv_cmd(connection):
 
 
 def snd_cmd(connection, cmd):
-    connection.send((cmd + '\n').encode('utf-8'))
+    try:
+        connection.send((cmd + '\n').encode('utf-8'))
+    except:
+        messagebox.showwarning(title="No connection", message="Connection has been dropped by server")
+        os.kill(os.getpid(), SIGTERM)
 
 
 def jsonfy_request(call_func, args):
