@@ -101,13 +101,15 @@ def getkey(file_path):
 args = parse_args()
 ipv4, port = args.ip, args.port
 chat_key = ''
-try:
-    chat_key = getkey(args.key)
-except:
-    pass
-
+if args.key:
+    try:
+        chat_key = getkey(args.key)
+    except FileNotFoundError:
+        exit('KeyFile "' + args.key + '" was not found')
 if not re_match(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b", ipv4):
     exit("Given IP is invalid")
+if not port in range(1, 65354):
+    exit("Given port is invalid")
 
 
 def rcv_cmd(connection):
@@ -515,12 +517,14 @@ def chat_listener():
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(10.0)
 try:
     sock.connect((ipv4, port))
-except ConnectionRefusedError:
+except (ConnectionRefusedError, socket.timeout):
     root.withdraw()
     messagebox.showwarning(title="Warning", message="Could not connect to Server " + str(ipv4) + ':' + str(port))
     os.kill(os.getpid(), SIGTERM)
+sock.settimeout(None)
 try:
     fpublicity_button("Create Room", window_create_room).place(x=5, y=5, width=200, height=70)
     fpublicity_button("Enter Room", window_enter_room).place(x=5, y=85, width=200, height=70)
