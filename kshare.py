@@ -6,6 +6,7 @@ from Crypto.Random import get_random_bytes
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.PublicKey import RSA
 from argparse import ArgumentParser
+from os import path
 import sys
 
 
@@ -18,13 +19,21 @@ class Argparser(ArgumentParser):
 
 def parse_args():
     argparser = Argparser()
+    if len(sys.argv) < 2:
+        argparser.print_help()
+        exit()
     subparsers = argparser.add_subparsers(help='Subparsers for Fpublicity KShare')
+    rsa_subparser = subparsers.add_parser('rsa-4096', help="Using this subparser you can generate RSA-4096 key pair")
+    rsa_subparser.add_argument('-puk', '--public-key', type=str, help="Output Public Key file. [Default: rsa4096_puk.pem]", default="rsa4096_puk.pem")
+    rsa_subparser.add_argument('-prk', '--private-key', type=str, help="Output Private Key file. [Default: rsa4096_prk.pem]", default="rsa4096_prk.pem")
     encrypt_subparser = subparsers.add_parser('encrypt', help='Using this subparser you can encrypt your Fpublicity room key')
     encrypt_subparser.add_argument('-puk', '--public-key', type=str, required=True, help="File containing RSA-4096 Public key to encrypt Fpublicity room key file")
     encrypt_subparser.add_argument('-f', '--file', type=str, required=True, help="Fpublicity room key file to be encrypted by RSA-4096 public-key")
+    encrypt_subparser.add_argument('-o', '--output', type=str, help="Encrypted fpublicity room key file name. [Default: fpub_key.crypt]", default="fpub_key.crypt")
     decrypt_subparser = subparsers.add_parser('decrypt', help='Using this subparser you can decrypt your Fpublicity room key')
     decrypt_subparser.add_argument('-prk', '--private-key', required=True, type=str, help="File containing RSA-4096 Private key to decrypt Fpublicity room key file")
     decrypt_subparser.add_argument('-f', '--file', type=str, required=True, help="Fpublicity room key file to be decrypted by RSA-4096 private-key")
+    decrypt_subparser.add_argument('-o', '--output', type=str, help="Decrypted fpublicity room key file name. [Default: fpub_key.bin]", default="fpub_key.bin")
     return argparser.parse_args()
 
 
@@ -65,42 +74,88 @@ def get_fpub_key(file_path):
 
 
 args = parse_args()
-# AES-256 Encryption using key and iv
-# fpub_key = get_fpub_key('fpub_key.bin')
-# print("Encypting fpub key with AES-256...")
-# aes256_key = generate_AES_key(32)
-# print(aes256_key)
-# aes256_cipher = AESCipher(aes256_key)
-# print(aes256_cipher.iv)
-# encoded_fpub_key = aes256_cipher.encrypt(fpub_key)
-# with open('fpub_key.aes', 'wb') as f:
-#     f.write(encoded_fpub_key)
-# with open('fpub_key.aes', 'rb') as f:
-#     encoded_fpub_key = f.read()
-# iv = aes256_cipher.iv
-# aes256_cipher = AESCipher(aes256_key, iv)
-# print(aes256_cipher.iv)
-# init_fpub_key = aes256_cipher.decrypt(encoded_fpub_key)
-# with open('fpub_transOK_key.bin', 'wb') as f:
-#     f.write(init_fpub_key)
-# print(fpub_key == init_fpub_key)
+if sys.argv[1] == 'rsa-4096':
+    pr_key_file = args.private_key
+    pu_key_file = args.public_key
+    if path.isfile(pr_key_file):
+        if input(f'File: "{pr_key_file}" already exists. Overwrite? (y/n): ').lower() != 'y':
+            exit()
+    if path.isfile(pu_key_file):
+        if input(f'File: "{pu_key_file}" already exists. Overwrite? (y/n): ').lower() != 'y':
+            exit()
+    # Generating RSA-4096
+    print("Generating RSA-4096 key pair...")
+    pr_key, pu_key = generate_RSA_pair(4096)
+    export_RSA_key(pr_key, pr_key_file)
+    export_RSA_key(pu_key, pu_key_file)
+    print("RSA-4096 generation: OK")
+elif sys.argv[1] == 'encrypt':
+    file = args.file
+    output_file = args.output
+    pu_key_file = args.public_key
+    if not path.isfile(file):
+        exit(f'Error: Could not find file "{file}"')
+    if not path.isfile(pu_key_file):
+        exit(f'Error: Could not find file "{pu_key_file}"')
+    if path.isfile(output_file):
+        if input(f'File: "{output_file}" already exists. Overwrite? (y/n): ').lower() != 'y':
+            exit()
+    try:
+        print(f'Getting RSA-4096 Public key from "{pu_key_file}"...')
+        pu_key = RSA.import_key(open(pu_key_file, 'r').read())
+        if pu_key.has_private():  # if key is Private
+            exit(f'Error: Given key is Private. For encrypting Public key is required')
+        rsa_cipher = PKCS1_OAEP.new(key=pu_key)
+    except ValueError:
+        exit(f'Error: File "{pu_key_file}" is not a valid RSA key')
+    # AES-256 Encryption using key and iv
+    fpub_key = get_fpub_key(file)
+    print(f"Encypting {file} with AES-256...")
+    aes256_key = generate_AES_key(32)
+    aes256_cipher = AESCipher(aes256_key)
+    fpub_key = aes256_cipher.encrypt(fpub_key)
+    print(f'Encrypting AES-256 key with "{pu_key_file}"...')
+    aes256_key = rsa_cipher.encrypt(aes256_key + aes256_cipher.iv)
+    with open(output_file, 'wb') as f:
+        f.write(fpub_key + aes256_key)
+    print(f'"{file}" key encryption: OK')
+elif sys.argv[1] == 'decrypt':
+    file = args.file
+    output_file = args.output
+    pr_key_file = args.private_key
+    if not path.isfile(file):
+        exit(f'Error: Could not find file "{file}"')
+    if not path.isfile(pr_key_file):
+        exit(f'Error: Could not find file "{pr_key_file}"')
+    if path.isfile(output_file):
+        if input(f'File: "{output_file}" already exists. Overwrite? (y/n): ').lower() != 'y':
+            exit()
+    try:
+        print(f'Getting RSA-4096 Private key from "{pr_key_file}"...')
+        pr_key = RSA.import_key(open(pr_key_file, 'r').read())
+        if not pr_key.has_private():  # if key is Public
+            exit(f'Error: Given key is Public. For decrypting Private key is required')
+        rsa_cipher = PKCS1_OAEP.new(key=pr_key)
+    except ValueError:
+        exit(f'Error: File "{pr_key_file}" is not a valid RSA key')
+    # Decrypting AES-256 key with RSA-4096 private key
+    encrypted_fpub_key = get_fpub_key(file)
+    print(f'Decrypting AES-256 key using "{pr_key_file}" file...')
+    try:
+        aes256_key = rsa_cipher.decrypt(encrypted_fpub_key[-512:])
+        iv = aes256_key[-16:]
+        aes256_key = aes256_key[:-16]
+        encrypted_fpub_key = encrypted_fpub_key[:-512]
+    except ValueError as e:
+        if e.args[0] == "Incorrect decryption.":
+            exit(f'Error: AES-256 key decryption error. Invalid Private key "{pr_key_file}" or "{file}" file')
+        elif e.args[0] == 'Ciphertext with incorrect length.':
+            exit(f'Error: Encrypted AES-256 key cannot be found in "{file}" file')
+    # AES-256 Decryption using key and iv
+    print(f'Decrypting "{file}" using AES-256 key...')
+    aes256_cipher = AESCipher(aes256_key, iv)
+    fpub_key = aes256_cipher.decrypt(encrypted_fpub_key)
+    with open(output_file, 'wb') as f:
+        f.write(fpub_key)
+    print(f'"{file}" key decryption: OK')
 
-
-# Generating RSA-4096 and Ecrypting some bytes (turn to LSB 48 of key.aes. AES 32+16 (key, iv))
-# print("Generating RSA 4096...")
-# pr_key, pu_key = generate_RSA_pair(4096)
-# print("Private is Public")
-# cipher = PKCS1_OAEP.new(key=pu_key)
-# decrypt = PKCS1_OAEP.new(key=pr_key)
-# for i in range(2):
-#     cipher_text = cipher.encrypt(b"\x01"*48)
-#     print(cipher_text)
-#     print(decrypt.decrypt(cipher_text))
-    
-
-# Exporting keys
-# export_RSA_key(pr_key, 'private.pem')
-# export_RSA_key(pu_key, 'public.pem')
-# pr_key = RSA.import_key(open('rsa_pr.pem', 'r').read())
-# pu_key = RSA.import_key(open('rsa_pu.pem', 'r').read())
-# print("Done")
