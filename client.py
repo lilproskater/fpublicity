@@ -320,6 +320,8 @@ def window_chat(room_id):
                     clear_input = True
         if clear_input:
             user_input.delete(0, END)
+
+
     threading.Thread(target=chat_listener).start()
     clear_tk(root)
     chat_history.place(x=20, y=20, width=560, height=300)
